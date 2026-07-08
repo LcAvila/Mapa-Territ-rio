@@ -15,6 +15,7 @@ import { authenticate, requirePermission } from '../middlewares/auth';
 import { logUserActivity } from '../utils/logger';
 import { geocodeAddress } from '../utils/geocoding';
 import { validateBody, createClienteSchema } from '../utils/validation';
+import { getActivePublishedVersion } from '../utils/clientes-published';
 
 const router = Router();
 
@@ -23,14 +24,44 @@ router.use(authenticate);
 
 // ---------------------------------------------------------
 // GET /api/clientes - Traz a lista da rapaziada (clientes)
+// Suporta source=published para usar base publicada
 // ---------------------------------------------------------
 router.get('/', async (req, res) => {
   try {
-    const { userId } = req.query;
+    const { userId, source } = req.query;
+    const user = (req as any).user;
+
+    // Se source=published, retorna da base publicada
+    if (source === 'published') {
+      const { version, clients } = await getActivePublishedVersion();
+      res.json({
+        source: 'published',
+        version: version ? {
+          versionNumber: version.versionNumber,
+          versionLabel: version.versionLabel,
+          publishedAt: version.publishedAt,
+          totalClients: version.totalClients,
+        } : null,
+        clientes: clients.map(c => ({
+          id_cliente: 0,
+          codigo_cliente: c.codigoCliente,
+          nome_cliente: c.nomeCliente,
+          nome_abreviado: c.nomeAbreviado,
+          uf: c.uf,
+          cidade: c.cidade,
+          bairro: c.bairro,
+          latitude: c.latitude,
+          longitude: c.longitude,
+          status_ativo: true,
+          userId: null,
+        })),
+      });
+      return;
+    }
+
     const where: any = {};
     
     // Cada um no seu quadrado: 
-    const user = (req as any).user;
     const hasSettingsPerm = user.permissions?.some((p: any) => (p.moduleId === 'settings' || p.module?.id === 'settings') && p.canEdit);
     const isAdmin = user.role === 'admin' || hasSettingsPerm;
 
@@ -50,7 +81,6 @@ router.get('/', async (req, res) => {
 
     let clientes: any[] = [];
     try {
-      // Tenta Prisma com timeout de 10 segundos
       const prismaPromise = prisma.cliente.findMany({
         where,
         orderBy: { nome_cliente: 'asc' },
@@ -76,10 +106,8 @@ router.get('/', async (req, res) => {
       console.log(`[CLIENTES] Encontrados ${clientes.length} clientes via Prisma`);
     } catch (e) {
       console.warn(`[CLIENTES] Prisma falhou ou deu timeout, tentando via Supabase HTTP...`);
-      // Fallback para Supabase HTTP
       let query = (req as any).supabaseAdmin.from('clientes').select('*, user:users(id, full_name, username)');
       
-      // Mapear filtros 'where' para o formato Supabase
       if (where.userId) {
         if (where.userId.in) query = query.in('userId', where.userId.in);
         else query = query.eq('userId', where.userId);
@@ -91,7 +119,6 @@ router.get('/', async (req, res) => {
       console.log(`[CLIENTES] Encontrados ${clientes.length} clientes via HTTP Fallback`);
     }
 
-    // Anotando no caderninho quem andou biobilhotando os clientes
     if (user) {
       logUserActivity(user.id, 'query', 'Usuário consultou a base de clientes', req, 'Cliente').catch(() => {});
     }

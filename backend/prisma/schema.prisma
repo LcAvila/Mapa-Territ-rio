@@ -74,6 +74,19 @@ model User {
   auditLogs         RouteAuditLog[]
   exports           RouteExport[]
 
+  // Data Integration relations
+  createdConnections ExternalConnection[]         @relation("ConnectionCreator")
+  updatedConnections ExternalConnection[]         @relation("ConnectionUpdater")
+  createdDatasets    ExternalDataset[]            @relation("DatasetCreator")
+  updatedDatasets    ExternalDataset[]            @relation("DatasetUpdater")
+  createdJobs        EtlJob[]                     @relation("JobCreator")
+  updatedJobs        EtlJob[]                     @relation("JobUpdater")
+  triggeredRuns      EtlJobRun[]                  @relation("RunTriggerer")
+  createdSnapshots   ClientesSnapshot[]           @relation("SnapshotCreator")
+  publishedVersions  ClientesPublishedVersion[]   @relation("VersionPublisher")
+  rolledBackVersions ClientesPublishedVersion[]   @relation("VersionRollbacker")
+  createdOverrides   ClientesSourceOverride[]     @relation("OverrideCreator")
+
   @@map("users")
 }
 
@@ -608,4 +621,343 @@ model UserType {
   users           User[]
 
   @@map("user_types")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DATA INTEGRATION MODULE
+// ═══════════════════════════════════════════════════════════════════
+
+model ExternalConnection {
+  id                Int                  @id @default(autoincrement())
+  name              String
+  description       String?
+  sourceType        String               @default("parquet") // parquet, parquet_folder, xlsx, postgresql, sqlserver, rest_api, s3, directory
+  filePath          String?
+  filePattern       String?
+  optionsJson       Json                 @default("{}")
+  datasetTarget     String?
+  tags              Json                 @default("[]")
+  status            String               @default("inactive") // active, inactive, error, testing
+  lastValidatedAt   DateTime?
+  lastRunAt         DateTime?
+  lastPublishedAt   DateTime?
+  lastError         String?
+  validationResult  Json?
+  createdBy         Int
+  updatedBy         Int?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  deletedAt         DateTime?
+
+  creator           User                 @relation("ConnectionCreator", fields: [createdBy], references: [id])
+  updater           User?                @relation("ConnectionUpdater", fields: [updatedBy], references: [id])
+  datasets          ExternalDataset[]
+  jobs              EtlJob[]
+  runReferences     EtlJobRun[]          @relation("RunConnection")
+
+  @@index([status])
+  @@index([sourceType])
+  @@index([createdBy])
+  @@map("external_connections")
+}
+
+model ExternalDataset {
+  id               Int                      @id @default(autoincrement())
+  connectionId     Int
+  name             String
+  description      String?
+  internalSchema   Json                     @default("{}")
+  sourceSchema     Json?
+  columnMapping    Json                     @default("[]")
+  validationRules  Json                     @default("[]")
+  rowCountEstimate Int?
+  status           String                   @default("draft") // draft, validated, staged, published, error
+  version          Int                      @default(1)
+  createdBy        Int
+  updatedBy        Int?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  connection       ExternalConnection       @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  creator          User                     @relation("DatasetCreator", fields: [createdBy], references: [id])
+  updater          User?                    @relation("DatasetUpdater", fields: [updatedBy], references: [id])
+  columns          ExternalDatasetColumn[]
+  rules            ExternalDatasetRule[]
+  jobs             EtlJob[]
+  snapshots        ClientesSnapshot[]
+  runReferences    EtlJobRun[]          @relation("RunDataset")
+
+  @@index([connectionId])
+  @@index([status])
+  @@map("external_datasets")
+}
+
+model ExternalDatasetColumn {
+  id               Int                @id @default(autoincrement())
+  datasetId        Int
+  sourceColumn     String
+  targetField      String
+  inferredType     String?
+  targetType       String             @default("string") // string, integer, float, boolean, date, datetime, json
+  isRequired       Boolean            @default(false)
+  isKey            Boolean            @default(false)
+  defaultValue     String?
+  transformRule    String?
+  transformOptions Json               @default("{}")
+  sortOrder        Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  dataset          ExternalDataset    @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@index([datasetId])
+  @@map("external_dataset_columns")
+}
+
+model ExternalDatasetRule {
+  id              Int              @id @default(autoincrement())
+  datasetId       Int
+  field           String
+  ruleType        String           // required, unique, uf_valid, cep_valid, email_valid, cnpj_valid, lat_valid, lng_valid
+  severity        String           @default("error") // error, warning
+  paramsJson      Json             @default("{}")
+  errorMessage    String?
+  isBlocking      Boolean          @default(true)
+  enabled         Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+
+  dataset         ExternalDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@index([datasetId])
+  @@map("external_dataset_rules")
+}
+
+model EtlJob {
+  id               Int            @id @default(autoincrement())
+  connectionId     Int
+  datasetId        Int?
+  name             String
+  description      String?
+  cronExpression   String?
+  configJson       Json           @default("{}")
+  mode             String         @default("full") // full, incremental
+  maxErrors        Int            @default(100)
+  status           String         @default("inactive") // active, inactive, error, running
+  lastRunId        Int?
+  lastRunStatus    String?
+  lastRunAt        DateTime?
+  createdBy        Int
+  updatedBy        Int?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  connection       ExternalConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  dataset          ExternalDataset?   @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+  creator          User               @relation("JobCreator", fields: [createdBy], references: [id])
+  updater          User?              @relation("JobUpdater", fields: [updatedBy], references: [id])
+  runs             EtlJobRun[]
+
+  @@index([connectionId])
+  @@index([status])
+  @@map("etl_jobs")
+}
+
+model EtlJobRun {
+  id               Int               @id @default(autoincrement())
+  jobId            Int
+  connectionId     Int
+  datasetId        Int?
+  runType          String            @default("manual") // manual, scheduled, retry, test
+  status           String            @default("pending") // pending, testing, reading, inspecting, previewing, mapping, validating, staging, comparing, ready, published, failed, cancelled
+  currentStep      String?
+  progressPct      Int               @default(0)
+  rowsRead         Int               @default(0)
+  rowsValid        Int               @default(0)
+  rowsInvalid      Int               @default(0)
+  rowsDiscarded    Int               @default(0)
+  rowsDeduplicated Int               @default(0)
+  rowsNew          Int               @default(0)
+  rowsChanged      Int               @default(0)
+  rowsRemoved      Int               @default(0)
+  errorCount       Int               @default(0)
+  warningCount     Int               @default(0)
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  errorMessage     String?
+  resultJson       Json?
+  triggeredBy      Int
+  createdAt        DateTime          @default(now())
+
+  job              EtlJob                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  connection       ExternalConnection    @relation("RunConnection", fields: [connectionId], references: [id], onDelete: Cascade)
+  dataset          ExternalDataset?      @relation("RunDataset", fields: [datasetId], references: [id], onDelete: SetNull)
+  triggerer        User                  @relation("RunTriggerer", fields: [triggeredBy], references: [id])
+  steps            EtlJobRunStep[]
+  logs             EtlRunLog[]
+  snapshots        ClientesSnapshot[]
+
+  @@index([jobId])
+  @@index([status])
+  @@index([triggeredBy])
+  @@index([startedAt])
+  @@map("etl_job_runs")
+}
+
+model EtlJobRunStep {
+  id             Int          @id @default(autoincrement())
+  runId          Int
+  stepName       String       // test_access, read_source, inspect_schema, preview, validate, stage, compare, publish
+  status         String       @default("pending") // pending, running, completed, failed, skipped
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  durationMs     Int?
+  resultJson     Json?
+  errorMessage   String?
+
+  run            EtlJobRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  logs           EtlRunLog[]
+
+  @@index([runId])
+  @@map("etl_job_run_steps")
+}
+
+model EtlRunLog {
+  id             Int              @id @default(autoincrement())
+  runId          Int
+  stepId         Int?
+  level          String           @default("info") // debug, info, warn, error
+  message        String
+  detailsJson    Json?
+  createdAt      DateTime         @default(now())
+
+  run            EtlJobRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  step           EtlJobRunStep?   @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([stepId])
+  @@index([level])
+  @@map("etl_run_logs")
+}
+
+model ClientesSnapshot {
+  id                Int                      @id @default(autoincrement())
+  etlRunId          Int?
+  datasetId         Int?
+  versionLabel       String
+  sourceDescription  String?
+  totalRows         Int                      @default(0)
+  validRows         Int                      @default(0)
+  invalidRows       Int                      @default(0)
+  duplicatesRemoved  Int                      @default(0)
+  newClients        Int                      @default(0)
+  changedClients    Int                      @default(0)
+  removedClients    Int                      @default(0)
+  status            String                   @default("staged") // staged, approved, published, rolled_back, cancelled
+  createdBy         Int
+  createdAt         DateTime                 @default(now())
+  publishedAt       DateTime?
+
+  etlRun            EtlJobRun?               @relation(fields: [etlRunId], references: [id], onDelete: SetNull)
+  dataset           ExternalDataset?         @relation(fields: [datasetId], references: [id], onDelete: SetNull)
+  creator           User                     @relation("SnapshotCreator", fields: [createdBy], references: [id])
+  items             ClientesSnapshotItem[]
+  publishedVersions ClientesPublishedVersion[]
+
+  @@index([status])
+  @@index([etlRunId])
+  @@map("clientes_snapshots")
+}
+
+model ClientesSnapshotItem {
+  id                Int                   @id @default(autoincrement())
+  snapshotId        Int
+  codigoCliente     String
+  nomeCliente       String
+  nomeAbreviado     String?
+  regiao            String?
+  uf                String?
+  cidade            String?
+  bairro            String?
+  cep               String?
+  enderecoCompleto  String?
+  numero            String?
+  cnpj              String?
+  documento         String?
+  telefone          String?
+  email             String?
+  latitude          Float?
+  longitude         Float?
+  vendedor          String?
+  representante     String?
+  status            String?                @default("ativo")
+  segmento          String?
+  canal             String?
+  dataCadastro      DateTime?
+  dataUltimaCompra  DateTime?
+  limiteCredito     Float?
+  faturamento       Float?
+  observacoes       String?
+  changeType        String?                // new, changed, removed, unchanged, invalid
+  changeDetails     Json?
+  isValid           Boolean                @default(true)
+  validationErrors  Json                   @default("[]")
+  isActive          Boolean                @default(true)
+  sourceRawJson     Json?
+  createdAt         DateTime               @default(now())
+
+  snapshot          ClientesSnapshot       @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@index([codigoCliente])
+  @@index([changeType])
+  @@index([isValid])
+  @@map("clientes_snapshot_items")
+}
+
+model ClientesPublishedVersion {
+  id               Int                   @id @default(autoincrement())
+  snapshotId       Int
+  versionNumber    Int
+  versionLabel     String
+  isActive         Boolean               @default(false)
+  totalClients     Int                   @default(0)
+  newClients       Int                   @default(0)
+  changedClients   Int                   @default(0)
+  removedClients   Int                   @default(0)
+  publishedBy      Int
+  publishedAt      DateTime              @default(now())
+  rolledBackAt     DateTime?
+  rolledBackBy     Int?
+  rollbackReason   String?
+  metadataJson     Json                  @default("{}")
+
+  snapshot         ClientesSnapshot          @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  publisher        User                      @relation("VersionPublisher", fields: [publishedBy], references: [id])
+  rollbacker       User?                     @relation("VersionRollbacker", fields: [rolledBackBy], references: [id])
+  overrides        ClientesSourceOverride[]
+
+  @@index([versionNumber])
+  @@index([snapshotId])
+  @@map("clientes_published_versions")
+}
+
+model ClientesSourceOverride {
+  id                Int                      @id @default(autoincrement())
+  codigoCliente     String
+  fieldName         String
+  originalValue     String?
+  overriddenValue   String
+  overrideReason    String?
+  appliedInVersion  Int?
+  createdBy         Int
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  version           ClientesPublishedVersion? @relation(fields: [appliedInVersion], references: [id], onDelete: SetNull)
+  creator           User                      @relation("OverrideCreator", fields: [createdBy], references: [id])
+
+  @@unique([codigoCliente, fieldName])
+  @@index([codigoCliente])
+  @@index([appliedInVersion])
+  @@map("clientes_source_overrides")
 }

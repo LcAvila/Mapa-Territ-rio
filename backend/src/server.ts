@@ -25,6 +25,9 @@ import routingRoutes from './routes/routing.routes';
 import notificationsRoutes from './routes/notifications.routes';
 import visitRouteRoutes from './routes/visit-route.routes';
 import externalRoutes from './routes/external.routes';
+import dataConnectionsRoutes from './routes/data-connections/index';
+import etlRoutes from './routes/etl/index';
+import clientesSyncRoutes from './routes/clientes-sync/index';
 import { prisma } from './prisma';
 
 const app = express();
@@ -93,6 +96,9 @@ app.use('/api/birthdays', birthdaysRoutes);
 app.use('/api/routing', routingRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/visit-route', visitRouteRoutes);
+app.use('/api/admin/data-connections', dataConnectionsRoutes);
+app.use('/api/admin/etl', etlRoutes);
+app.use('/api/admin/clientes-sync', clientesSyncRoutes);
 
 async function bootstrap() {
   // Inicia o servidor PRIMEIRO, independente do banco

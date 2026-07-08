@@ -222,6 +222,7 @@ import { BaseClientePanel } from '../components/admin/rotas/BaseClientePanel';
 import { SupervisorRoutesPanel } from '../components/admin/rotas/SupervisorRoutesPanel';
 import { VisitScheduler } from '../components/admin/rotas/VisitScheduler';
 import { HelpDocumentation } from '@/components/help/HelpDocumentation';
+import { DataConnectionsPanel } from '@/components/admin/data-connections/DataConnectionsPanel';
 const MiniMapBrasil = React.lazy(() => import('../components/admin/MiniMapBrasil'));
 import { AuditLogsPanel } from '../components/admin/AuditLogsPanel';
 import { SystemConfigPanel } from '../components/admin/SystemConfigPanel';
@@ -264,7 +265,7 @@ interface SystemNotification { id: number; title: string; message: string; creat
 interface AuditLog { id: string; action: string; entity: string; entityId: string; details: string; uf?: string; municipio?: string; performedBy: string; timestamp: string; ipAddress?: string; }
 interface ModulePermission { userId: number; moduleId: string; canView: boolean; canEdit: boolean; }
 
-type TabId = 'dashboard' | 'ajuda' | 'users' | 'territories' | 'groups' | 'notifications' | 'audit' | 'personal' | 'rotas' | 'baserotas' | 'clusters' | 'blocos' | 'roteiros' | 'agenda' | 'densidade' | 'cycles' | 'roteiro_seq' | 'resumo_roteiro' | 'user_types' | 'system' | 'reps' | 'visitas' | 'visitas_agendar' | `user_type_${number}`;
+type TabId = 'dashboard' | 'ajuda' | 'users' | 'territories' | 'groups' | 'notifications' | 'audit' | 'personal' | 'rotas' | 'baserotas' | 'clusters' | 'blocos' | 'roteiros' | 'agenda' | 'densidade' | 'cycles' | 'roteiro_seq' | 'resumo_roteiro' | 'user_types' | 'system' | 'reps' | 'visitas' | 'visitas_agendar' | 'data-connections' | 'etl-runs' | 'clientes-versions' | `user_type_${number}`;
 
 interface NavItem {
   id: TabId | 'settings' | 'rotas_menu' | 'users_menu' | 'visitas_menu' | 'ajuda';
@@ -1302,6 +1303,7 @@ export default function Admin() {
     },
     { id: 'territories' as const, label: 'Territórios', icon: MapPin, restrict: ['admin', 'supervisor'] },
     { id: 'notifications' as const, label: 'Enviar Alerta', icon: Bell, restrict: ['admin'] },
+    { id: 'data-connections' as const, label: 'Conexões de Dados', icon: Database, restrict: ['admin'] },
     {
       id: 'settings' as const, label: 'Configurações', icon: Settings, restrict: ['admin'], subItems: [
         { id: 'system' as const, label: 'Editar sistema', icon: Settings },
@@ -1325,7 +1327,8 @@ export default function Admin() {
       'audit': 'audit',
       'users': 'users',
       'system': 'settings',
-      'settings': 'settings'
+      'settings': 'settings',
+      'data-connections': 'data-connections'
     };
 
     const moduleId = moduleMap[item.id as string];
@@ -4187,6 +4190,11 @@ export default function Admin() {
             />
               );
             })()
+          )}
+
+          {/* ━━ DATA CONNECTIONS ━━ */}
+          {activeTab === 'data-connections' && role === 'admin' && (
+            <DataConnectionsPanel token={token} userId={userId} />
           )}
 
           {/* ━━ VISITAS ━━ */}
