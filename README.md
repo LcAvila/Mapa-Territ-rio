@@ -1,6 +1,6 @@
 # Mapa Território
 
-Sistema web para **gestão territorial**, **cadastro de clientes**, **planejamento logístico** e **execução de roteiros de visita** no Brasil. Combina mapas interativos (estados, municípios, bairros e clientes), painel administrativo completo, autenticação via Supabase e API REST em Node.js com PostgreSQL (Supabase).
+Sistema web para **gestão territorial**, **cadastro de clientes**, **planejamento logístico** e **execução de roteiros de visita** no Brasil. Combina mapas interativos (estados, municípios, bairros e clientes), painel administrativo completo, autenticação via Supabase e API REST em Node.js com PostgreSQL (Supabase)..
 
 ---
 
